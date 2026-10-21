@@ -1,0 +1,11 @@
+enabledMessage: "&7&l« &a&lSH &8&l» &7Ramassage auto des drops/loots &aactivée"
+disabledMessage: "&7&l« &e&lSH &8&l» &7Ramassage auto des drops/loots &edésactivée"
+noPermissionMessage: "&7&l« &e&lSH &8&l» &fCette commande est obtenue après avoir fini la quête &5L'éveil du Néant&f. Mais cela en vaut-il vraiment le coup ?.."
+inventoryFullMessage: "&7&l« &c&lSH &8&l» &7Votre inventaire est plein, l'item a été drop au sol"
+blacklist:
+  - BEDROCK
+  - DRAGON_EGG
+  - HOPPER
+worldBlacklist:
+  - "spawn"
+  - "arene"
