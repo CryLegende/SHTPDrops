@@ -1,10 +1,12 @@
 package org.Cry_Legende.sHTPDrops;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -18,7 +20,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -28,6 +29,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.Nullable;
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -40,7 +43,7 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
     // --- Core Fields ---
     private Set<Material> blacklist;
     private Set<String> worldBlacklist;
-    private Map<UUID, Boolean> playerPreferences;
+    private final Map<UUID, Boolean> playerPreferences = new ConcurrentHashMap<>();
     private File preferencesFile;
     private final Gson gson = new Gson();
     private Map<UUID, Long> lastInventoryFullMessage = new HashMap<>();
@@ -57,7 +60,6 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         this.saveDefaultConfig();
         this.blacklist = loadBlacklist();
         this.worldBlacklist = new HashSet<>(getConfig().getStringList("worldBlacklist"));
-        this.playerPreferences = new ConcurrentHashMap<>();
         setupPreferencesFile();
         loadPlayerPreferences();
         getServer().getPluginManager().registerEvents(this, this);
@@ -73,11 +75,6 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
     private boolean hasPermission(Player player) {
         return player.hasPermission("shtpdrops.use");
-    }
-
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        // Rien à faire ici
     }
 
     @EventHandler
@@ -121,8 +118,9 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
         if (shouldCancelEvent(player, type)) return;
 
-        if (event.getBlock().getState() instanceof Container) {
-            Container container = (Container) event.getBlock().getState();
+        // Un seul getState(false) : pas de copie de l'état du bloc pour chaque bloc cassé, conteneur ou non
+        BlockState state = event.getBlock().getState(false);
+        if (state instanceof Container container) {
             container.getInventory().forEach(item -> {
                 if (item != null) {
                     event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), item.clone());
@@ -207,30 +205,26 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         }
     }
 
+    // Lecture synchrone au démarrage (fichier minuscule) : une lecture asynchrone pouvait croiser une première
+    // sauvegarde et écraser les préférences déjà enregistrées
     private void loadPlayerPreferences() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    if (preferencesFile.length() != 0) {
-                        Reader reader = new FileReader(preferencesFile);
-                        Type type = new TypeToken<Map<UUID, Boolean>>() {
-                        }.getType();
-                        Map<UUID, Boolean> loadedPrefs = gson.fromJson(reader, type);
-                        if (loadedPrefs != null) {
-                            playerPreferences = new ConcurrentHashMap<>(loadedPrefs);
-                        } else {
-                            playerPreferences = new ConcurrentHashMap<>();
-                        }
-                        reader.close();
-                    } else {
-                        playerPreferences = new ConcurrentHashMap<>();
-                    }
-                } catch (IOException e) {
-                    getLogger().severe("Could not load preferences.json: " + e.getMessage());
-                }
+        if (preferencesFile.length() == 0) return;
+        try (Reader reader = new FileReader(preferencesFile)) {
+            Type type = new TypeToken<Map<UUID, Boolean>>() {
+            }.getType();
+            Map<UUID, Boolean> loadedPrefs = gson.fromJson(reader, type);
+            if (loadedPrefs != null) {
+                playerPreferences.putAll(loadedPrefs);
             }
-        }.runTaskAsynchronously(this);
+        } catch (IOException | JsonParseException e) {
+            getLogger().severe("Could not load preferences.json: " + e.getMessage());
+            // La prochaine sauvegarde réécrira le fichier : on garde une copie du fichier illisible
+            try {
+                Files.copy(preferencesFile.toPath(), new File(getDataFolder(), "preferences.json.corrupt").toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     private void savePlayerPreferencesAsync() {
@@ -245,10 +239,18 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
     // synchronized : une sauvegarde async encore en cours ne doit pas croiser l'écriture de onDisable()
     private synchronized void writePlayerPreferences(Map<UUID, Boolean> prefsToSave) {
-        try (Writer writer = new FileWriter(preferencesFile)) {
+        // Fichier temporaire puis remplacement : un arrêt en plein milieu ne tronque pas preferences.json
+        File tmp = new File(preferencesFile.getParentFile(), preferencesFile.getName() + ".tmp");
+        try (Writer writer = new FileWriter(tmp)) {
             gson.toJson(prefsToSave, writer);
         } catch (IOException e) {
             getLogger().warning("Could not save preferences.json: " + e.getMessage());
+            return;
+        }
+        try {
+            Files.move(tmp.toPath(), preferencesFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            getLogger().warning("Could not replace preferences.json: " + e.getMessage());
         }
     }
 
