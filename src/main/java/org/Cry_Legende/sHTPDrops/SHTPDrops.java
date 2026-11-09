@@ -46,7 +46,8 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
     private final Map<UUID, Boolean> playerPreferences = new ConcurrentHashMap<>();
     private File preferencesFile;
     private final Gson gson = new Gson();
-    private Map<UUID, Long> lastInventoryFullMessage = new HashMap<>();
+    // Écrit depuis les threads des mondes (mort d'un mob) et du thread principal (déconnexion) : map concurrente
+    private final Map<UUID, Long> lastInventoryFullMessage = new ConcurrentHashMap<>();
 
     public static SHTPDropsAPI getApi() {
         return instance != null ? instance.api : null;
