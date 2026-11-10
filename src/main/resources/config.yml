@@ -1,3 +1,24 @@
+# ======================================================================== #
+# SHTPDrops
+#
+# Plugin : les drops des blocs cassés et des mobs tués vont directement dans l'inventaire du joueur (le reste
+# tombe à ses pieds quand l'inventaire est plein). Chaque joueur peut le désactiver pour lui. Avec SHNetwork,
+# ce choix suit le joueur d'un serveur à l'autre (voir la section 'reseau' en bas du fichier).
+#
+# Commandes :
+#   /tpdrops          Active ou désactive la téléportation des drops pour soi.
+#   /tpdrops import   Mode réseau : reprend preferences.json dans la base partagée (une seule fois).
+#
+# Permissions :
+#   shtpdrops.use     Utiliser /tpdrops et profiter de la téléportation des drops.
+#   shtpdrops.admin   Utiliser /tpdrops import (par défaut : op).
+#
+# API pour les autres plugins : SHTPDrops.getApi() (isTpDropsActive, hasPlayerToggledTpDropsOn, setTpDropsForPlayer...).
+#
+# Les messages du mode réseau sont dans 'messages.yml'.
+#
+# ======================================================================== #
+
 enabledMessage: "&7&l« &a&lSH &8&l» &7Ramassage auto des drops/loots &aactivée"
 disabledMessage: "&7&l« &e&lSH &8&l» &7Ramassage auto des drops/loots &edésactivée"
 noPermissionMessage: "&7&l« &e&lSH &8&l» &fCette commande est obtenue après avoir fini la quête &5L'éveil du Néant&f. Mais cela en vaut-il vraiment le coup ?.."
@@ -9,3 +30,20 @@ blacklist:
 worldBlacklist:
   - "spawn"
   - "arene"
+
+# Mode réseau. Actif seulement si SHNetwork est installé et 'actif' vaut true : les joueurs qui ont désactivé
+# la téléportation des drops sont alors dans la base partagée (table shtpdrops_disabled : une ligne par joueur) et
+# relus à l'arrivée du joueur sur un serveur. Sans SHNetwork, rien de ceci n'est utilisé et les préférences
+# restent dans preferences.json. Demande un redémarrage.
+reseau:
+  actif: true
+  # Durée maximale, en secondes, pendant laquelle on attend que l'autre serveur ait fini de sauvegarder
+  # le joueur avant de relire sa préférence
+  attente-max-secondes: 10
+  base-de-donnees:
+    url: "jdbc:mariadb://127.0.0.1:3306/bo_net"
+    utilisateur: shtpdrops
+    mot-de-passe: CHANGE_ME
+    # Délai maximal de connexion et de réponse de la base, en millisecondes. Une base qui ne répond pas
+    # laisse le joueur avec la téléportation des drops activée.
+    delai-ms: 3000

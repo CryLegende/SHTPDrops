@@ -18,11 +18,27 @@ Envoie les drops de minage et les loots de mobs directement dans l'inventaire (/
 
 Utilisé sur : **Opale**.
 
+## Dépendances
+
+- Optionnelle : `SHNetwork` (mode réseau)
+
+## Mode réseau
+
+Avec **SHNetwork** installé (et `reseau.actif: true`, valeur par défaut), plusieurs serveurs de jeu partagent les préférences des joueurs :
+
+- les joueurs qui ont désactivé la téléportation des drops sont dans MariaDB (table `shtpdrops_disabled`, une ligne par joueur) ; `/tpdrops` et l'API (`setTpDropsForPlayer`) ajoutent ou retirent cette seule ligne, sur un fil à part ;
+- au départ d'un joueur, SHNetwork attend que ces écritures soient finies ;
+- à son arrivée sur l'autre serveur, sa préférence est relue en base une fois le départ confirmé ; d'ici là la téléportation est activée (valeur par défaut, jamais écrite en base) ;
+- `preferences.json` n'est plus lu ni écrit : `/tpdrops import` (permission `shtpdrops.admin`, console comprise) le reprend une fois dans la base, sans écraser ce qui y est déjà.
+
+L'API (`SHTPDrops.getApi()`, y compris l'ancien paquet `com.shtpdrops`) lit la mémoire du serveur : elle répond pour les joueurs qui y sont connectés. Sans SHNetwork, ou sans les clés `reseau` dans la configuration, le plugin se comporte comme avant : préférences locales dans `preferences.json`. Si la base est injoignable, le joueur garde la téléportation activée. La table se crée toute seule au démarrage, ou à la main avec `sql/schema.sql`.
+
 ## Commandes
 
 | Commande | Alias | Description | Permission |
 |---|---|---|---|
 | `/tpdrops` | — | Toggle the SHTPDrops functionality. | `shtpdrops.use` |
+| `/tpdrops import` | — | Mode réseau : reprend `preferences.json` dans la base partagée. | `shtpdrops.admin` |
 
 ## Configuration
 
@@ -30,7 +46,8 @@ Fichiers par défaut repris du serveur (secrets remplacés par `CHANGE_ME`). Cli
 
 <pre>
 plugins/SHTPDrops/
-└── <a href="src/main/resources/config.yml">config.yml</a>
+├── <a href="src/main/resources/config.yml">config.yml</a>
+└── <a href="src/main/resources/messages.yml">messages.yml</a>
 </pre>
 
 ## Compilation

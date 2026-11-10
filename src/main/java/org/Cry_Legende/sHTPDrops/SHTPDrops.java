@@ -4,6 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import net.kyori.adventure.text.Component;
+import org.Cry_Legende.sHTPDrops.network.NetworkLink;
+import org.Cry_Legende.sHTPDrops.network.NetworkPreferences;
+import org.Cry_Legende.sHTPDrops.network.PreferencesDatabase;
+import org.Cry_Legende.sHTPDrops.network.ShNetworkLink;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.block.BlockState;
@@ -11,6 +15,7 @@ import org.bukkit.block.Container;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -29,10 +34,13 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.Nullable;
 import java.io.*;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
@@ -45,6 +53,9 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
     private Set<String> worldBlacklist;
     private final Map<UUID, Boolean> playerPreferences = new ConcurrentHashMap<>();
     private File preferencesFile;
+    // Non nul seulement avec SHNetwork : les préférences vivent alors dans la base partagée
+    private NetworkPreferences network;
+    private YamlConfiguration messages;
     private final Gson gson = new Gson();
     // Écrit depuis les threads des mondes (mort d'un mob) et du thread principal (déconnexion) : map concurrente
     private final Map<UUID, Long> lastInventoryFullMessage = new ConcurrentHashMap<>();
@@ -62,16 +73,88 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         this.blacklist = loadBlacklist();
         this.worldBlacklist = new HashSet<>(getConfig().getStringList("worldBlacklist"));
         setupPreferencesFile();
-        loadPlayerPreferences();
+        loadMessages();
+        enableNetwork();
+        // Avec le mode réseau, la base fait foi : le fichier local n'est lu que par /tpdrops import
+        if (network == null) {
+            loadPlayerPreferences();
+        }
         getServer().getPluginManager().registerEvents(this, this);
         this.getCommand("tpdrops").setExecutor(this);
     }
 
     @Override
     public void onDisable() {
-        // Le scheduler refuse les tâches d'un plugin en cours d'arrêt : écriture finale synchrone
-        writePlayerPreferences(new HashMap<>(this.playerPreferences));
+        if (network != null) {
+            network.stop();
+        } else {
+            // Le scheduler refuse les tâches d'un plugin en cours d'arrêt : écriture finale synchrone
+            writePlayerPreferences(new HashMap<>(this.playerPreferences));
+        }
         instance = null;
+    }
+
+    /**
+     * Passe en mode réseau si SHNetwork est installé et 'reseau.actif' est vrai. Les classes qui touchent à SHNetwork
+     * ne sont chargées qu'ici : sans lui, le plugin se comporte exactement comme avant.
+     */
+    private void enableNetwork() {
+        if (!getConfig().getBoolean("reseau.actif", true)) return;
+        if (!Bukkit.getPluginManager().isPluginEnabled("SHNetwork")) return;
+        PreferencesDatabase db = null;
+        try {
+            NetworkLink link = ShNetworkLink.open();
+            db = new PreferencesDatabase(
+                getConfig().getString("reseau.base-de-donnees.url"),
+                getConfig().getString("reseau.base-de-donnees.utilisateur"),
+                getConfig().getString("reseau.base-de-donnees.mot-de-passe"),
+                Math.max(250, getConfig().getInt("reseau.base-de-donnees.delai-ms", 3000)));
+            db.createTable();
+            Duration wait = Duration.ofSeconds(Math.max(1, getConfig().getInt("reseau.attente-max-secondes", 10)));
+            NetworkPreferences net = new NetworkPreferences(this, playerPreferences, db, link, wait);
+            net.start();
+            network = net;
+            getLogger().info("SHNetwork détecté : les préférences des joueurs sont partagées entre les serveurs (base partagée).");
+        } catch (Exception | LinkageError e) {
+            if (db != null) db.close();
+            getLogger().log(Level.SEVERE, "SHNetwork présent mais inutilisable, préférences locales à ce serveur : " + e);
+        }
+    }
+
+    /** messages.yml, avec les valeurs du jar pour toute clé absente du fichier du serveur. */
+    private void loadMessages() {
+        File file = new File(getDataFolder(), "messages.yml");
+        if (!file.exists()) saveResource("messages.yml", false);
+        messages = YamlConfiguration.loadConfiguration(file);
+        try (InputStreamReader defaults = new InputStreamReader(Objects.requireNonNull(getResource("messages.yml")), StandardCharsets.UTF_8)) {
+            messages.setDefaults(YamlConfiguration.loadConfiguration(defaults));
+        } catch (Exception e) {
+            getLogger().log(Level.WARNING, "messages.yml de référence illisible : " + e.getMessage());
+        }
+    }
+
+    /** Texte de messages.yml, couleurs appliquées. */
+    private Component getMessage(String key) {
+        return LegacyComponentSerializer.legacyAmpersand().deserialize(messages.getString(key, key));
+    }
+
+    /** /tpdrops import : reprend preferences.json dans la base partagée (une fois, sans écraser ce qui y est déjà). */
+    private void importPreferences(CommandSender sender) {
+        if (network == null) {
+            sender.sendMessage(getMessage("reseau-inactif"));
+            return;
+        }
+        network.importFile(preferencesFile.toPath(), (counts, error) -> {
+            if (error != null) {
+                sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(
+                    messages.getString("reseau-import-erreur", "").replace("%erreur%", error)));
+            } else {
+                sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(
+                    messages.getString("reseau-import", "")
+                        .replace("%ajoutes%", String.valueOf(counts[0]))
+                        .replace("%deja%", String.valueOf(counts[1]))));
+            }
+        });
     }
 
     private boolean hasPermission(Player player) {
@@ -172,6 +255,12 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        // Administration : /tpdrops import (la console et les joueurs qui ont shtpdrops.admin)
+        if (cmd.getName().equalsIgnoreCase("tpdrops") && args.length > 0 && args[0].equalsIgnoreCase("import")
+            && sender.hasPermission("shtpdrops.admin")) {
+            importPreferences(sender);
+            return true;
+        }
         if (cmd.getName().equalsIgnoreCase("tpdrops") && sender instanceof Player) {
             Player player = (Player) sender;
             if (!hasPermission(player)) {
@@ -268,6 +357,10 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
     }
 
     public void setPlayerPreference(UUID playerUUID, boolean enable) {
+        if (network != null) {
+            network.set(playerUUID, enable);
+            return;
+        }
         if (enable) {
             // Activer signifie retirer la préférence "false" (le défaut est true)
             playerPreferences.remove(playerUUID);
