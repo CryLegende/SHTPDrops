@@ -6,27 +6,32 @@
 # ce choix suit le joueur d'un serveur à l'autre (voir la section 'reseau' en bas du fichier).
 #
 # Commandes :
-#   /tpdrops          Active ou désactive la téléportation des drops pour soi.
-#   /tpdrops import   Mode réseau : reprend preferences.json dans la base partagée (une seule fois).
+#   /tpdrops                    Active ou désactive la téléportation des drops pour soi.
+#   /shtpdrops import           Mode réseau : reprend preferences.json dans la base partagée (une seule fois).
+#                               (/tpdrops import marche toujours)
+#   /shtpdrops reload           Relit config.yml et messages.yml (un fichier illisible ne change rien). La section
+#                               reseau ne se relit qu'au démarrage ; preferences.json n'est jamais touché.
+#   /shtpdrops info <joueur>    Dit pourquoi la téléportation des drops est active ou non pour un joueur en ligne.
 #
 # Permissions :
-#   shtpdrops.use     Utiliser /tpdrops et profiter de la téléportation des drops.
-#   shtpdrops.admin   Utiliser /tpdrops import (par défaut : op).
+#   shtpdrops.use              Utiliser /tpdrops et profiter de la téléportation des drops (op par défaut).
+#   shtpdrops.admin            Toutes les sous-commandes de /shtpdrops (op par défaut).
+#   shtpdrops.admin.import     /shtpdrops import.
+#   shtpdrops.admin.reload     /shtpdrops reload.
+#   shtpdrops.admin.info       /shtpdrops info.
 #
 # API pour les autres plugins : SHTPDrops.getApi() (isTpDropsActive, hasPlayerToggledTpDropsOn, setTpDropsForPlayer...).
 #
-# Les messages du mode réseau sont dans 'messages.yml'.
+# Tous les textes sont dans 'messages.yml'.
 #
 # ======================================================================== #
 
-enabledMessage: "&7&l« &a&lSH &8&l» &7Ramassage auto des drops/loots &aactivée"
-disabledMessage: "&7&l« &e&lSH &8&l» &7Ramassage auto des drops/loots &edésactivée"
-noPermissionMessage: "&7&l« &e&lSH &8&l» &fCette commande est obtenue après avoir fini la quête &5L'éveil du Néant&f. Mais cela en vaut-il vraiment le coup ?.."
-inventoryFullMessage: "&7&l« &c&lSH &8&l» &7Votre inventaire est plein, l'item a été drop au sol"
+# Matériaux dont les drops ne sont jamais ramassés automatiquement.
 blacklist:
   - BEDROCK
   - DRAGON_EGG
   - HOPPER
+# Mondes où le ramassage automatique est coupé.
 worldBlacklist:
   - "spawn"
   - "arene"

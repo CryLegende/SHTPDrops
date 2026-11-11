@@ -29,7 +29,7 @@ Avec **SHNetwork** installé (et `reseau.actif: true`, valeur par défaut), plus
 - les joueurs qui ont désactivé la téléportation des drops sont dans MariaDB (table `shtpdrops_disabled`, une ligne par joueur) ; `/tpdrops` et l'API (`setTpDropsForPlayer`) ajoutent ou retirent cette seule ligne, sur un fil à part ;
 - au départ d'un joueur, SHNetwork attend que ces écritures soient finies ;
 - à son arrivée sur l'autre serveur, sa préférence est relue en base une fois le départ confirmé ; d'ici là la téléportation est activée (valeur par défaut, jamais écrite en base) ;
-- `preferences.json` n'est plus lu ni écrit : `/tpdrops import` (permission `shtpdrops.admin`, console comprise) le reprend une fois dans la base, sans écraser ce qui y est déjà.
+- `preferences.json` n'est plus lu ni écrit : `/shtpdrops import` (permission `shtpdrops.admin.import`, console comprise) le reprend une fois dans la base, sans écraser ce qui y est déjà.
 
 L'API (`SHTPDrops.getApi()`, y compris l'ancien paquet `com.shtpdrops`) lit la mémoire du serveur : elle répond pour les joueurs qui y sont connectés. Sans SHNetwork, ou sans les clés `reseau` dans la configuration, le plugin se comporte comme avant : préférences locales dans `preferences.json`. Si la base est injoignable, le joueur garde la téléportation activée. La table se crée toute seule au démarrage, ou à la main avec `sql/schema.sql`.
 
@@ -37,8 +37,20 @@ L'API (`SHTPDrops.getApi()`, y compris l'ancien paquet `com.shtpdrops`) lit la m
 
 | Commande | Alias | Description | Permission |
 |---|---|---|---|
-| `/tpdrops` | — | Toggle the SHTPDrops functionality. | `shtpdrops.use` |
-| `/tpdrops import` | — | Mode réseau : reprend `preferences.json` dans la base partagée. | `shtpdrops.admin` |
+| `/tpdrops` | — | Active ou désactive le ramassage automatique des drops pour soi. | `shtpdrops.use` |
+| `/shtpdrops import` | `/tpdrops import` | Mode réseau : reprend `preferences.json` dans la base partagée. | `shtpdrops.admin.import` |
+| `/shtpdrops reload` | — | Relit `config.yml` et `messages.yml` (un fichier illisible ne change rien). | `shtpdrops.admin.reload` |
+| `/shtpdrops info <joueur>` | — | Dit pourquoi le ramassage est actif ou non pour un joueur en ligne. | `shtpdrops.admin.info` |
+
+## Permissions
+
+| Permission | Description | Par défaut |
+|---|---|---|
+| `shtpdrops.use` | Utiliser `/tpdrops` et profiter du ramassage automatique. | `op` |
+| `shtpdrops.admin` | Toutes les sous-commandes de `/shtpdrops`. | `op` |
+| `shtpdrops.admin.import` | `/shtpdrops import`. | `op` |
+| `shtpdrops.admin.reload` | `/shtpdrops reload`. | `op` |
+| `shtpdrops.admin.info` | `/shtpdrops info`. | `op` |
 
 ## Configuration
 

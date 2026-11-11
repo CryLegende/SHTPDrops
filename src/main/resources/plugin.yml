@@ -16,8 +16,27 @@ commands:
     description: Toggle the SHTPDrops functionality.
     usage: /<command>
     permission: shtpdrops.use
+  shtpdrops:
+    description: Administration de SHTPDrops.
+    usage: /<command> <import|reload|info>
 
 permissions:
+  shtpdrops.use:
+    description: Utiliser /tpdrops et profiter de la téléportation des drops.
+    default: op
   shtpdrops.admin:
-    description: Utiliser /tpdrops import (mode réseau).
+    description: Administration de SHTPDrops (toutes les sous-commandes de /shtpdrops).
+    default: op
+    children:
+      shtpdrops.admin.import: true
+      shtpdrops.admin.reload: true
+      shtpdrops.admin.info: true
+  shtpdrops.admin.import:
+    description: Reprendre preferences.json dans la base partagée, mode réseau (/shtpdrops import).
+    default: op
+  shtpdrops.admin.reload:
+    description: Recharger config.yml et messages.yml (/shtpdrops reload).
+    default: op
+  shtpdrops.admin.info:
+    description: Voir pourquoi le ramassage automatique est actif ou non pour un joueur (/shtpdrops info).
     default: op

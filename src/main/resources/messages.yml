@@ -1,5 +1,38 @@
-# Messages du mode réseau de SHTPDrops (ceux de /tpdrops sont dans config.yml).
-# Variables : %ajoutes% et %deja% (import), %erreur%.
+# Messages de SHTPDrops. Codes couleur &. Une clé absente reprend le texte livré avec le plugin.
+# Variables du mode réseau : %ajoutes% et %deja% (import), %erreur%.
+
+# /tpdrops : ramassage automatique activé ou désactivé par le joueur.
+enabledMessage: "&7&l« &a&lSH &8&l» &7Ramassage auto des drops/loots &aactivée"
+disabledMessage: "&7&l« &e&lSH &8&l» &7Ramassage auto des drops/loots &edésactivée"
+# Joueur qui n'a pas shtpdrops.use
+noPermissionMessage: "&7&l« &e&lSH &8&l» &fCette commande est obtenue après avoir fini la quête &5L'éveil du Néant&f. Mais cela en vaut-il vraiment le coup ?.."
+# Drop tombé au sol parce que l'inventaire est plein (au plus un message toutes les 15 secondes)
+inventoryFullMessage: "&7&l« &c&lSH &8&l» &7Votre inventaire est plein, l'item a été drop au sol"
+
+# Mode réseau
 reseau-inactif: "&7&l« &e&lSH &8&l» &7Le mode réseau n'est &epas actif &7sur ce serveur."
 reseau-import: "&7&l« &a&lSH &8&l» &7Import terminé : &a%ajoutes% &7joueur(s) ajouté(s) à la base, &e%deja% &7déjà présent(s)."
 reseau-import-erreur: "&7&l« &c&lSH &8&l» &7Import impossible : &c%erreur%&7."
+
+# /shtpdrops : {subcommands} = celles que l'expéditeur peut utiliser
+usage-line: "&7&l« &e&lSH &8&l» &7Utilisation : &e/shtpdrops &7<&e{subcommands}&7>"
+no-permission: "&7&l« &c&lSH &8&l» &7Vous n'avez pas la &cpermission &7d'utiliser cette commande."
+player-not-found: "&7&l« &c&lSH &8&l» &7Joueur &c{player} &7introuvable (il doit être en ligne)."
+
+# /shtpdrops reload. {blocks} : matériaux en liste noire, {worlds} : mondes en liste noire,
+# {file} : fichier illisible, {error} : cause (l'ancienne configuration reste en place)
+reload-done: "&7&l« &a&lSH &8&l» &7Configuration rechargée : &a{blocks} &7matériau(x) et &a{worlds} &7monde(s) en liste noire."
+reload-error: "&7&l« &c&lSH &8&l» &7Rechargement annulé, &c{file} &7est illisible : &c{error}"
+reload-restart: "&7&l« &6&lSH &8&l» &7La section &6reseau &7ne se lit qu'au démarrage : &6redémarrage nécessaire &7pour la changer."
+
+# /shtpdrops info <joueur>
+info-header: "&7&l« &e&lSH &8&l» &7Ramassage automatique de &e{player}"
+info-permission: "&8 • &7Permission shtpdrops.use : {value}"
+info-preference: "&8 • &7Activé par le joueur (/tpdrops) : {value}"
+info-gamemode: "&8 • &7Mode de jeu (pas créatif) : {value}"
+info-world: "&8 • &7Monde &f{world} &7: {value}"
+info-result: "&8 • &7Résultat : {value}"
+info-ok: "&aok"
+info-blocked: "&cbloque"
+info-active: "&aactif"
+info-inactive: "&cinactif"

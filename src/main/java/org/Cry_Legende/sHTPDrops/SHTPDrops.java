@@ -19,6 +19,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
@@ -53,13 +54,16 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
     private SHTPDropsAPI api;
 
     // --- Core Fields ---
-    private Set<Material> blacklist;
-    private Set<String> worldBlacklist;
+    // Remplacés d'un bloc par /shtpdrops reload : lus par les threads des mondes et par l'API des autres plugins
+    private volatile Set<Material> blacklist;
+    private volatile Set<String> worldBlacklist;
     private final Map<UUID, Boolean> playerPreferences = new ConcurrentHashMap<>();
     private File preferencesFile;
     // Non nul seulement avec SHNetwork : les préférences vivent alors dans la base partagée
     private NetworkPreferences network;
-    private YamlConfiguration messages;
+    private volatile YamlConfiguration messages;
+    // Section reseau de config.yml au démarrage : elle ne se relit pas à chaud
+    private String networkSignature;
     private final Gson gson = new Gson();
     // Écrit depuis les threads des mondes (mort d'un mob) et du thread principal (déconnexion) : map concurrente
     private final Map<UUID, Long> lastInventoryFullMessage = new ConcurrentHashMap<>();
@@ -75,9 +79,11 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
         this.saveDefaultConfig();
         this.blacklist = loadBlacklist();
-        this.worldBlacklist = new HashSet<>(getConfig().getStringList("worldBlacklist"));
+        this.worldBlacklist = Set.copyOf(getConfig().getStringList("worldBlacklist"));
+        networkSignature = networkSignature();
         setupPreferencesFile();
-        loadMessages();
+        migrateLegacyMessages();
+        messages = loadMessages();
         enableNetwork();
         // Avec le mode réseau, la base fait foi : le fichier local n'est lu que par /tpdrops import
         if (network == null) {
@@ -85,6 +91,9 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         }
         getServer().getPluginManager().registerEvents(this, this);
         this.getCommand("tpdrops").setExecutor(this);
+        AdminCommand admin = new AdminCommand(this);
+        this.getCommand("shtpdrops").setExecutor(admin);
+        this.getCommand("shtpdrops").setTabCompleter(admin);
     }
 
     @Override
@@ -125,25 +134,133 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         }
     }
 
+    /** Textes qui étaient dans config.yml et sont maintenant dans messages.yml (mêmes noms de clés). */
+    private static final List<String> LEGACY_MESSAGES = List.of(
+        "enabledMessage", "disabledMessage", "noPermissionMessage", "inventoryFullMessage");
+
+    /**
+     * Reprend dans messages.yml les textes encore écrits dans config.yml, pour garder ceux du serveur : un messages.yml
+     * créé maintenant reçoit tous les textes de config.yml, un messages.yml existant reçoit ceux qui lui manquent.
+     * config.yml n'est plus lu ensuite pour ces textes.
+     */
+    private void migrateLegacyMessages() {
+        File file = new File(getDataFolder(), "messages.yml");
+        boolean created = !file.exists();
+        if (created) saveResource("messages.yml", false);
+        try {
+            List<String> lines = new ArrayList<>(Files.readAllLines(file.toPath(), StandardCharsets.UTF_8));
+            boolean changed = false;
+            for (String key : LEGACY_MESSAGES) {
+                String text = getConfig().getString(key);
+                if (text == null) continue;
+                String line = key + ": \"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+                int index = -1;
+                for (int i = 0; i < lines.size(); i++) {
+                    if (lines.get(i).startsWith(key + ":")) index = i;
+                }
+                if (index < 0) {
+                    lines.add(line);
+                    changed = true;
+                } else if (created) {
+                    lines.set(index, line);
+                    changed = true;
+                }
+            }
+            if (changed) Files.write(file.toPath(), lines, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            getLogger().log(Level.WARNING, "Textes de config.yml non repris dans messages.yml : " + e.getMessage());
+        }
+    }
+
     /** messages.yml, avec les valeurs du jar pour toute clé absente du fichier du serveur. */
-    private void loadMessages() {
+    private YamlConfiguration loadMessages() {
         File file = new File(getDataFolder(), "messages.yml");
         if (!file.exists()) saveResource("messages.yml", false);
-        messages = YamlConfiguration.loadConfiguration(file);
+        YamlConfiguration loaded = YamlConfiguration.loadConfiguration(file);
         try (InputStreamReader defaults = new InputStreamReader(Objects.requireNonNull(getResource("messages.yml")), StandardCharsets.UTF_8)) {
-            messages.setDefaults(YamlConfiguration.loadConfiguration(defaults));
+            loaded.setDefaults(YamlConfiguration.loadConfiguration(defaults));
         } catch (Exception e) {
             getLogger().log(Level.WARNING, "messages.yml de référence illisible : " + e.getMessage());
         }
+        return loaded;
     }
 
     /** Texte de messages.yml, couleurs appliquées. */
     private Component getMessage(String key) {
-        return LegacyComponentSerializer.legacyAmpersand().deserialize(messages.getString(key, key));
+        return LegacyComponentSerializer.legacyAmpersand().deserialize(rawMessage(key));
     }
 
-    /** /tpdrops import : reprend preferences.json dans la base partagée (une fois, sans écraser ce qui y est déjà). */
-    private void importPreferences(CommandSender sender) {
+    /** Texte de messages.yml sans couleurs appliquées ; chaque paire de {@code values} remplace {nom} par sa valeur. */
+    String rawMessage(String key, String... values) {
+        // getString(key) et non getString(key, défaut) : seul le premier reprend le texte livré avec le jar
+        String text = messages.getString(key);
+        if (text == null) text = key;
+        for (int i = 0; i + 1 < values.length; i += 2) {
+            text = text.replace("{" + values[i] + "}", values[i + 1]);
+        }
+        return text;
+    }
+
+    void sendMessage(CommandSender to, String key, String... values) {
+        to.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(rawMessage(key, values)));
+    }
+
+    private String networkSignature() {
+        return String.valueOf(getConfig().getConfigurationSection("reseau") == null
+            ? "" : getConfig().getConfigurationSection("reseau").getValues(true));
+    }
+
+    /**
+     * /shtpdrops reload : relit config.yml et messages.yml. Un fichier illisible ne change rien. preferences.json et la
+     * base ne sont pas touchés ; la section reseau ne se relit qu'au démarrage.
+     */
+    void reload(CommandSender sender) {
+        for (String name : List.of("config.yml", "messages.yml")) {
+            File file = new File(getDataFolder(), name);
+            if (!file.isFile()) continue;
+            try {
+                new YamlConfiguration().load(file);
+            } catch (IOException | InvalidConfigurationException e) {
+                String error = String.valueOf(e.getMessage()).replaceAll("\\s+", " ").trim();
+                getLogger().warning(name + " illisible, configuration inchangée : " + error);
+                sendMessage(sender, "reload-error", "file", name, "error", error);
+                return;
+            }
+        }
+        reloadConfig();
+        blacklist = loadBlacklist();
+        worldBlacklist = Set.copyOf(getConfig().getStringList("worldBlacklist"));
+        messages = loadMessages();
+        sendMessage(sender, "reload-done", "blocks", String.valueOf(blacklist.size()), "worlds", String.valueOf(worldBlacklist.size()));
+        if (!networkSignature().equals(networkSignature)) {
+            sendMessage(sender, "reload-restart");
+        }
+    }
+
+    /** /shtpdrops info : pourquoi le ramassage automatique est actif ou non pour un joueur en ligne. */
+    void showInfo(CommandSender sender, String name) {
+        Player target = Bukkit.getPlayerExact(name);
+        if (target == null) {
+            sendMessage(sender, "player-not-found", "player", name);
+            return;
+        }
+        String ok = rawMessage("info-ok");
+        String blocked = rawMessage("info-blocked");
+        boolean permission = hasPermission(target);
+        boolean preference = playerPreferences.getOrDefault(target.getUniqueId(), true);
+        boolean creative = target.getGameMode() == GameMode.CREATIVE;
+        boolean worldBlocked = worldBlacklist.contains(target.getWorld().getName());
+        sendMessage(sender, "info-header", "player", target.getName());
+        sendMessage(sender, "info-permission", "value", permission ? ok : blocked);
+        sendMessage(sender, "info-preference", "value", preference ? ok : blocked);
+        sendMessage(sender, "info-gamemode", "value", creative ? blocked : ok);
+        sendMessage(sender, "info-world", "world", target.getWorld().getName(), "value", worldBlocked ? blocked : ok);
+        sendMessage(sender, "info-result", "value",
+            rawMessage(permission && preference && !creative && !worldBlocked ? "info-active" : "info-inactive"));
+    }
+
+    /** /shtpdrops import (aussi /tpdrops import) : reprend preferences.json dans la base partagée (une fois, sans écraser ce qui y est déjà). */
+    void importPreferences(CommandSender sender) {
         if (network == null) {
             sender.sendMessage(getMessage("reseau-inactif"));
             return;
@@ -151,10 +268,10 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         network.importFile(preferencesFile.toPath(), (counts, error) -> {
             if (error != null) {
                 sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(
-                    messages.getString("reseau-import-erreur", "").replace("%erreur%", error)));
+                    rawMessage("reseau-import-erreur").replace("%erreur%", error)));
             } else {
                 sender.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(
-                    messages.getString("reseau-import", "")
+                    rawMessage("reseau-import")
                         .replace("%ajoutes%", String.valueOf(counts[0]))
                         .replace("%deja%", String.valueOf(counts[1]))));
             }
@@ -258,18 +375,16 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        // Administration : /tpdrops import (la console et les joueurs qui ont shtpdrops.admin)
+        // Ancien nom de /shtpdrops import (la console et ceux qui ont shtpdrops.admin.import)
         if (cmd.getName().equalsIgnoreCase("tpdrops") && args.length > 0 && args[0].equalsIgnoreCase("import")
-            && sender.hasPermission("shtpdrops.admin")) {
+            && AdminCommand.canUse(sender, "import")) {
             importPreferences(sender);
             return true;
         }
         if (cmd.getName().equalsIgnoreCase("tpdrops") && sender instanceof Player) {
             Player player = (Player) sender;
             if (!hasPermission(player)) {
-                Component noPermMessage = LegacyComponentSerializer.legacyAmpersand().deserialize(
-                    getConfig().getString("noPermissionMessage", "&cVous n'avez pas la permission d'utiliser cette commande."));
-                player.sendMessage(noPermMessage);
+                player.sendMessage(getMessage("noPermissionMessage"));
                 return true;
             }
             UUID playerId = player.getUniqueId();
@@ -279,8 +394,7 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
             setPlayerPreference(playerId, !isCurrentlyEnabled);
 
             String messageKey = isCurrentlyEnabled ? "disabledMessage" : "enabledMessage";
-            String rawMsg = getConfig().getString(messageKey, "TPDrops is now " + (!isCurrentlyEnabled ? "enabled" : "disabled") + ".");
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg));
+            player.sendMessage(getMessage(messageKey));
             return true;
         }
         return false;
@@ -351,7 +465,7 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         return getConfig().getStringList("blacklist").stream()
             .map(Material::matchMaterial)
             .filter(Objects::nonNull)
-            .collect(Collectors.toSet());
+            .collect(Collectors.toUnmodifiableSet());
     }
 
     private boolean tryToAddToInventory(PlayerInventory inventory, ItemStack drop) {
@@ -379,8 +493,7 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
         long lastSent = lastInventoryFullMessage.getOrDefault(player.getUniqueId(), 0L);
         if (now - lastSent >= 15000) {
             lastInventoryFullMessage.put(player.getUniqueId(), now);
-            String rawMsg = getConfig().getString("inventoryFullMessage", "&cTon inventaire est plein, l'objet a été déposé à tes pieds.");
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(rawMsg));
+            player.sendMessage(getMessage("inventoryFullMessage"));
         }
     }
 
