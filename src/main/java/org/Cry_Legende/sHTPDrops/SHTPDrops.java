@@ -10,8 +10,12 @@ import org.Cry_Legende.sHTPDrops.network.PreferencesDatabase;
 import org.Cry_Legende.sHTPDrops.network.ShNetworkLink;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
+import org.bukkit.block.Chest;
 import org.bukkit.block.Container;
+import org.bukkit.block.ShulkerBox;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -193,33 +197,32 @@ public class SHTPDrops extends JavaPlugin implements Listener, CommandExecutor {
             playerPreferences.getOrDefault(player.getUniqueId(), true);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    /**
+     * Le contenu d'un conteneur cassé tombe au sol, comme en vanilla ; le bloc lui-même suit la casse normale
+     * et son objet arrive dans l'inventaire par {@link #onBlockDropItem}. La casse n'est pas annulée : les
+     * autres plugins (niveau d'île, métiers, journaux) la voient. Une boîte de Shulker garde son contenu
+     * dans son objet.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        if (event.isCancelled()) return;
-
         Player player = event.getPlayer();
-        Material type = event.getBlock().getType();
+        Block block = event.getBlock();
 
-        if (shouldCancelEvent(player, type)) return;
+        if (shouldCancelEvent(player, block.getType())) return;
 
         // Un seul getState(false) : pas de copie de l'état du bloc pour chaque bloc cassé, conteneur ou non
-        BlockState state = event.getBlock().getState(false);
-        if (state instanceof Container container) {
-            container.getInventory().forEach(item -> {
-                if (item != null) {
-                    event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), item.clone());
-                }
-            });
-            container.getInventory().clear();
-            World world = player.getWorld();
-            ItemStack dropStack = new ItemStack(type);
-            if (!tryToAddToInventory(player.getInventory(), dropStack)) {
-                world.dropItem(player.getLocation(), dropStack);
-                sendInventoryFullMessage(player);
+        BlockState state = block.getState(false);
+        if (!(state instanceof Container container) || state instanceof ShulkerBox) return;
+
+        // Coffre double : seule la moitié cassée se vide
+        Inventory inventory = state instanceof Chest chest ? chest.getBlockInventory() : container.getInventory();
+        Location location = block.getLocation();
+        for (ItemStack item : inventory.getContents()) {
+            if (item != null && !item.isEmpty()) {
+                block.getWorld().dropItemNaturally(location, item.clone());
             }
-            event.setCancelled(true);
-            event.getBlock().setType(Material.AIR);
         }
+        inventory.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
