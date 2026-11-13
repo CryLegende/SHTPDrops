@@ -33,8 +33,8 @@ blacklist:
   - HOPPER
 # Mondes où le ramassage automatique est coupé.
 worldBlacklist:
-  - "spawn"
-  - "arene"
+  - "world_nether"
+  - "world_the_end"
 
 # Mode réseau. Actif seulement si SHNetwork est installé et 'actif' vaut true : les joueurs qui ont désactivé
 # la téléportation des drops sont alors dans la base partagée (table shtpdrops_disabled : une ligne par joueur) et
@@ -46,7 +46,7 @@ reseau:
   # le joueur avant de relire sa préférence
   attente-max-secondes: 10
   base-de-donnees:
-    url: "jdbc:mariadb://127.0.0.1:3306/bo_net"
+    url: "jdbc:mariadb://127.0.0.1:3306/minecraft"
     utilisateur: shtpdrops
     mot-de-passe: CHANGE_ME
     # Délai maximal de connexion et de réponse de la base, en millisecondes. Une base qui ne répond pas
